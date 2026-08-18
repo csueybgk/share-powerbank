@@ -1,0 +1,42 @@
+# ===== Java / Maven =====
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+*.war
+*.ear
+
+# ===== Node / 前端 =====
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# ===== IDE =====
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+.fleet/
+*.swp
+
+# ===== 日志 =====
+logs/
+*.log
+nohup.out
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ===== 小程序开发者本地配置 =====
+project.private.config.json
+
+# ===== 敏感信息（本地配置，勿提交） =====
+*.local.yml
+application-local.yml
+application-druid.yml

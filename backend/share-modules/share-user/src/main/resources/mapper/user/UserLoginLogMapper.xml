@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.share.user.mapper.UserLoginLogMapper">
+
+    <resultMap type="com.share.user.domain.UserLoginLog" id="UserLoginLogResult" autoMapping="true">
+    </resultMap>
+
+    <sql id="selectUserLoginLogVo">
+        select id, user_id, ipaddr, status, msg, create_time, create_by, update_time, update_by, del_flag, remark from user_login_log
+    </sql>
+
+    <select id="selectUserLoginLogList" parameterType="com.share.user.domain.UserLoginLog" resultMap="UserLoginLogResult">
+        <include refid="selectUserLoginLogVo"/>
+        <where>
+            <if test="userId != null "> and user_id = #{userId}</if>
+            <if test="ipaddr != null  and ipaddr != ''"> and ipaddr = #{ipaddr}</if>
+            <if test="status != null "> and status = #{status}</if>
+            <if test="msg != null  and msg != ''"> and msg = #{msg}</if>
+        and del_flag = 0
+        </where>
+    </select>
+
+</mapper>
