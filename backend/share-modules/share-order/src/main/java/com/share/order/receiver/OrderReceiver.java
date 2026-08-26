@@ -9,6 +9,7 @@ import com.share.order.service.IOrderInfoService;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Message;
+import org.springframework.amqp.rabbit.annotation.Argument;
 import org.springframework.amqp.rabbit.annotation.Exchange;
 import org.springframework.amqp.rabbit.annotation.Queue;
 import org.springframework.amqp.rabbit.annotation.QueueBinding;
@@ -34,7 +35,11 @@ public class OrderReceiver {
     @SneakyThrows
     @RabbitListener(bindings = @QueueBinding(
             exchange = @Exchange(value = MqConst.EXCHANGE_ORDER, durable = "true"),
-            value = @Queue(value = MqConst.QUEUE_SUBMIT_ORDER, durable = "true"),
+            value = @Queue(value = MqConst.QUEUE_SUBMIT_ORDER, durable = "true",
+                    arguments = {
+                            @Argument(name = "x-dead-letter-exchange", value = "share.order.dlx"),
+                            @Argument(name = "x-dead-letter-routing-key", value = "share.submit.order.dead")
+                    }),
             key = MqConst.ROUTING_SUBMIT_ORDER
     ))
     public void submitOrder(String content, Message message, Channel channel) {
@@ -46,6 +51,8 @@ public class OrderReceiver {
         boolean isExist = redisTemplate.opsForValue().setIfAbsent(key, messageNo, 1, TimeUnit.HOURS);
         if (!isExist) {
             log.info("重复请求: {}", content);
+            // 已处理过的重复消息直接确认，避免消息一直不被 ack 悬挂在消费者上
+            channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
             return;
         }
 
@@ -57,10 +64,11 @@ public class OrderReceiver {
             //手动应答
             channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
         } catch (Exception e) {
-            log.error("订单服务：订单归还失败，订单编号：{}", messageNo, e);
+            log.error("订单服务：订单创建失败，订单编号：{}", messageNo, e);
+            // 删除幂等标记，允许容器重试时重新执行
             redisTemplate.delete(key);
-            // 消费异常，重新入队
-            channel.basicNack(message.getMessageProperties().getDeliveryTag(), false, true);
+            // 抛出异常交给容器 RetryTemplate 重试（最多 3 次），耗尽后 requeue=false 进死信队列，不再无限重投
+            throw e;
         }
     }
 
@@ -68,7 +76,11 @@ public class OrderReceiver {
     @SneakyThrows
     @RabbitListener(bindings = @QueueBinding(
             exchange = @Exchange(value = MqConst.EXCHANGE_ORDER, durable = "true"),
-            value = @Queue(value = MqConst.QUEUE_END_ORDER, durable = "true"),
+            value = @Queue(value = MqConst.QUEUE_END_ORDER, durable = "true",
+                    arguments = {
+                            @Argument(name = "x-dead-letter-exchange", value = "share.order.dlx"),
+                            @Argument(name = "x-dead-letter-routing-key", value = "share.end.order.dead")
+                    }),
             key = MqConst.ROUTING_END_ORDER
     ))
 
@@ -82,6 +94,8 @@ public class OrderReceiver {
         boolean isExist = redisTemplate.opsForValue().setIfAbsent(key, messageNo, 1, TimeUnit.HOURS);
         if (!isExist) {
             log.info("重复请求: {}", content);
+            // 已处理过的重复消息直接确认，避免消息一直不被 ack 悬挂在消费者上
+            channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
             return;
         }
 
@@ -92,9 +106,20 @@ public class OrderReceiver {
             channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
         } catch (Exception e) {
             log.error("订单服务：订单归还失败，订单编号：{}", messageNo, e);
+            // 删除幂等标记，允许容器重试时重新执行
             redisTemplate.delete(key);
-            // 消费异常，重新入队
-            channel.basicNack(message.getMessageProperties().getDeliveryTag(), false, true);
+            // 抛出异常交给容器 RetryTemplate 重试（最多 3 次），耗尽后 requeue=false 进死信队列，不再无限重投
+            throw e;
         }
+    }
+
+    /**
+     * 死信队列：重试耗尽仍失败的订单消息，人工排查
+     */
+    @SneakyThrows
+    @RabbitListener(queues = {"share.submit.order.dead", "share.end.order.dead"})
+    public void deadLetterOrder(String content, Message message, Channel channel) {
+        log.error("[订单服务]订单死信消息（重试耗尽）：{}", content);
+        channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
     }
 }

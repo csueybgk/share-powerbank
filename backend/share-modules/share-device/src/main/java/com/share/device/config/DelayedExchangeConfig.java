@@ -3,6 +3,7 @@ package com.share.device.config;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.CustomExchange;
+import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,6 +22,11 @@ public class DelayedExchangeConfig {
     public static final String EXCHANGE_DEVICE_DELAYED = "share.device";
     public static final String DELAYED_EXCHANGE_TYPE = "x-delayed-message";
 
+    /** 死信交换机：消费重试耗尽的消息进入死信队列，避免无限重试 */
+    public static final String EXCHANGE_DEVICE_DLX = "share.device.dlx";
+    public static final String QUEUE_UNLOCK_SLOT_DEAD = "share.unlock.slot.dead";
+    public static final String ROUTING_UNLOCK_SLOT_DEAD = "share.unlock.slot.dead";
+
     @Bean
     public CustomExchange deviceDelayedExchange() {
         Map<String, Object> args = new HashMap<>();
@@ -30,7 +36,11 @@ public class DelayedExchangeConfig {
 
     @Bean
     public Queue deviceUnlockSlotQueue() {
-        return new Queue("share.unlock.slot", true);
+        Map<String, Object> args = new HashMap<>();
+        // 重试耗尽（容器 RetryTemplate 3 次）仍失败的消息，不再无限重投，进死信队列人工排查
+        args.put("x-dead-letter-exchange", EXCHANGE_DEVICE_DLX);
+        args.put("x-dead-letter-routing-key", ROUTING_UNLOCK_SLOT_DEAD);
+        return new Queue("share.unlock.slot", true, false, false, args);
     }
 
     @Bean
@@ -40,5 +50,24 @@ public class DelayedExchangeConfig {
                 .to(deviceDelayedExchange())
                 .with("share.unlock.slot")
                 .noargs();
+    }
+
+    // ========== 死信队列（DLQ）==========
+    @Bean
+    public DirectExchange deviceDeadLetterExchange() {
+        return new DirectExchange(EXCHANGE_DEVICE_DLX);
+    }
+
+    @Bean
+    public Queue deviceUnlockSlotDeadQueue() {
+        return new Queue(QUEUE_UNLOCK_SLOT_DEAD, true);
+    }
+
+    @Bean
+    public Binding deviceUnlockSlotDeadBinding() {
+        return BindingBuilder
+                .bind(deviceUnlockSlotDeadQueue())
+                .to(deviceDeadLetterExchange())
+                .with(ROUTING_UNLOCK_SLOT_DEAD);
     }
 }

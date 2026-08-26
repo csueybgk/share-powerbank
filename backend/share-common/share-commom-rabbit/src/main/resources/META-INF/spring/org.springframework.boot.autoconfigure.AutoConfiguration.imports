@@ -1,2 +1,3 @@
 com.share.common.rabbit.service.RabbitService
 com.share.common.rabbit.config.RabbitInitConfigApplicationListener
+com.share.common.rabbit.config.RabbitListenerRetryConfig
